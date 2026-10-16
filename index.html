@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GhostFace FOMOBot</title>
+<title>GhostFace FOMOBot v2</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
@@ -15,9 +15,9 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 .g{color:var(--g)}.r{color:var(--r)}.mut{color:var(--mut)}pre{white-space:pre-wrap;font-size:12px;margin:0}
 #plan h1,#plan h2{color:var(--txt);text-transform:none;letter-spacing:0}#plan{font-size:13px}
 </style></head><body>
-<header><h1>👻 GhostFace <span>FOMOBot</span></h1><div class="warn">PAPER TRADING, NOT FINANCIAL ADVICE</div><div class="mut" id="upd">loading…</div></header>
+<header><h1>👻 GhostFace <span>FOMOBot</span> <small style="font-size:13px;color:#7c869c">v2 · rug-checked</small></h1><div class="warn">PAPER TRADING, NOT FINANCIAL ADVICE</div><div class="mut" id="upd">loading…</div></header>
 <main>
-<div class="card wide"><h2>Equity curve per variant (virtual $100 start)</h2><canvas id="eq" height="90"></canvas></div>
+<div class="card wide"><h2>Equity curve per variant (v2, fresh virtual $100 each)</h2><canvas id="eq" height="90"></canvas></div>
 <div class="card wide"><h2>Variants</h2><table id="vt"></table></div>
 <div class="card"><h2>Open positions</h2><table id="pt"></table></div>
 <div class="card"><h2>Best current parameters</h2><pre id="bp"></pre></div>
@@ -33,11 +33,11 @@ async function load(){
  const ds=Object.entries(s.history).map(([n,h],i)=>({label:n,data:h.map(p=>({x:p[0]*1000,y:p[1]})),borderColor:C[i%7],pointRadius:0,borderWidth:2,tension:.2}));
  if(chart)chart.destroy();
  chart=new Chart(eq,{type:'line',data:{datasets:ds},options:{parsing:false,scales:{x:{type:'linear',ticks:{color:'#7c869c',callback:v=>new Date(v).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})},grid:{color:'#1e2433'}},y:{ticks:{color:'#7c869c'},grid:{color:'#1e2433'}}},plugins:{legend:{labels:{color:'#d8deea'}}}}});
- vt.innerHTML='<tr><th>Variant</th><th>Status</th><th>Equity</th><th>Realized P/L</th><th>Exits</th><th>Win rate</th><th>Avg win</th><th>Avg loss</th><th>Open</th></tr>'+
-  s.variants.map(v=>`<tr><td>${v.name}${v.name==s.best?' 🏆':''}</td><td class="mut">${v.alive?'alive':'retired'} g${v.generation}</td><td class="${cl(v.equity-100)}">$${f(v.equity)}</td><td class="${cl(v.realized)}">${f(v.realized)}</td><td>${v.exits}</td><td>${v.win_rate==null?'–':v.win_rate+'%'}</td><td class="g">${f(v.avg_win)}</td><td class="r">${f(v.avg_loss)}</td><td>${v.positions.length}</td></tr>`).join('');
+ vt.innerHTML='<tr><th>Variant</th><th>Status</th><th>Equity</th><th>Realized P/L</th><th>Closed</th><th>Expectancy</th><th>Win rate</th><th>Avg win</th><th>Avg loss</th><th>Open</th></tr>'+
+  s.variants.map(v=>`<tr><td>${v.name}${v.name==s.best?' 🏆':''}</td><td class="mut">${v.alive?'alive':'retired'} g${v.generation}</td><td class="${cl(v.equity-100)}">$${f(v.equity)}</td><td class="${cl(v.realized)}">${f(v.realized)}</td><td>${v.exits}</td><td class="${cl(v.expectancy_pct)}">${v.expectancy_pct==null?'–':f(v.expectancy_pct)+'%'}</td><td>${v.win_rate==null?'–':v.win_rate+'%'}</td><td class="g">${f(v.avg_win)}</td><td class="r">${f(v.avg_loss)}</td><td>${v.positions.length}</td></tr>`).join('');
  const ps=s.variants.flatMap(v=>v.positions.map(p=>({...p,vn:v.name})));
  pt.innerHTML='<tr><th>Variant</th><th>Token</th><th>Cost</th><th>P/L %</th><th>Held</th></tr>'+(ps.map(p=>`<tr><td>${p.vn}</td><td><a style="color:#8b5cf6" href="https://dexscreener.com/solana/${p.pair}" target=_blank>${p.symbol}</a></td><td>$${f(p.cost)}</td><td class="${cl(p.pnl_pct)}">${f(p.pnl_pct,1)}%</td><td>${f((Date.now()/1000-p.opened)/60,0)}m</td></tr>`).join('')||'<tr><td class=mut colspan=5>none</td></tr>');
- const b=s.variants.find(v=>v.name==s.best);bp.textContent=b?b.name+'\n'+JSON.stringify(b.params,null,1):'';
+ const b=s.variants.find(v=>v.name==s.best);bp.textContent=b?b.name+(b.exits<20?' (provisional: <20 closed trades)':' (judged on expectancy)')+'\n'+JSON.stringify(b.params,null,1):'';
  tt.innerHTML='<tr><th>Time</th><th>Variant</th><th>Side</th><th>Token</th><th>USD</th><th>P/L</th><th>%</th><th>Hold</th><th>Reason</th></tr>'+s.trades.map(t=>`<tr><td class=mut>${new Date(t.ts*1000).toLocaleString()}</td><td>${t.variant}</td><td>${t.side}</td><td>${t.symbol}</td><td>$${f(t.usd)}</td><td class="${cl(t.pnl)}">${t.side=='BUY'?'':f(t.pnl)}</td><td class="${cl(t.pnl_pct)}">${t.side=='BUY'?'':f(t.pnl_pct,1)+'%'}</td><td>${t.side=='BUY'?'':f(t.hold_min,0)+'m'}</td><td class=mut>${t.reason}</td></tr>`).join('');
 }
 fetch('PLAN.md?'+Date.now()).then(r=>r.text()).then(t=>pm.innerHTML=marked.parse(t));
