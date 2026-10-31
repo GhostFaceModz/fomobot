@@ -80,3 +80,29 @@
   - `pgrep -f run_copy.sh || (cd /workspace/papertrader && nohup setsid ./run_copy.sh >/dev/null 2>&1 &)`
   - `pgrep -f run_export.sh || (cd /workspace/papertrader && nohup setsid ./run_export.sh >/dev/null 2>&1 &)`
   - Logs: `copy.log` and `copy_stdout.log`. Also check that `fomo_wallets.json` is fresh.
+
+## FOMO FEED mode: copy from the Fomo in-app Traders feed (added 2026-10-31)
+- **Why:** Fomo does not expose trader wallets, so `fomo_wallets.json` stays empty and the wallet-based `COPY_*` variants stay inactive. They are kept, not removed.
+- **Source:** Zane follows the top 10 Fomo 30D traders: end837, G41T3R98, 0xbr9, jusatrades, vvvvvvvvvv, heat, bystevenr, zelda89, tikitikitrader and Oura456. A browser routine runs every 15 min and appends the bell-feed rows to `fomo_feed.jsonl`. Each line is `{seen_at, trader, side, token, size_usd, mcap_usd, age_text, tx_id_or_key}`.
+- **Ingest:** `copy_bot.py` re-reads the file about every 60s from a byte offset stored in `feed_state`. A half-written last line is held back until it is complete.
+- **Dedupe:** a row counts as a repeat if `tx_id_or_key` was already seen. It also counts as a repeat if a row from an earlier poll has the same trader, side, token and size, and a trade time within max(2 min, 1.5× the age-text granularity). Every row is logged in `feed_events` with the bot's action.
+- **Trade time:** estimated as `seen_at` minus the age text. Granularity is coarse: "2h" is only ±1h.
+- **Resolve:** DexScreener `/latest/dex/search?q=<symbol>` gives Solana pairs whose symbol or name matches, with liquidity ≥ $10k. The bot picks the mint whose market cap is closest to `mcap_usd`, within 30%. The row is skipped (and logged) if there is no match, if 2+ mints fall in the band without a clear winner, or if `mcap_usd` is missing and there is more than one mint.
+- **Buy:** only from the 10 followed traders, and only if the trade is at most 45 min old (older rows are logged as stale). The token must pass the same rug checks: mint and freeze authority revoked, top-10 ≤25% (with the Jupiter audit as fallback), and liquidity ≥ $50k.
+  - The bot pays $5 at the CURRENT price, with 1.5%/side fee and slippage.
+  - Each entry records the trader, their rank, their entry mcap and size, the lag (`entry_delay_s` = now minus the estimated trade time), and the mcap lag versus the trader (`lag_cost_pct`).
+  - If another followed trader buys a token we already hold, no new position opens. They join the position's `holders`, and a note is added.
+- **Sell (mirror variants):** the trader's share of the position (1/number of traders still holding) is sold in proportion to how much of their own bag they sold. That is estimated as sell $ ÷ (buy $ × mcap change). Above 90% counts as a full sale. If the sizes are unknown, their whole share is sold.
+- **Safety exits:** -15% stop and 6h max hold, checked every 10s. Prices come from Jupiter, with DexScreener as fallback.
+- **Variants** (each with $100, at most 10 open, -5% daily loss limit):
+  - `FEED_ALL`: all 10 traders.
+  - `FEED_TOP3`: only end837, G41T3R98 and 0xbr9.
+  - `FEED_HOLD`: same entries as FEED_ALL, ignores sells, exits after 1h (baseline).
+- `bot.py` ignores both `COPY%` and `FEED%` variants. The dashboard has a "Fomo Traders feed" card (`stats.json` → `feed`). `report.py` prints a feed summary.
+- **Test without touching live data:** `python3 copy_bot.py --feedtest /tmp/x.db /tmp/feed.jsonl`. It refuses to run on trades.db.
+- **Limitations:**
+  - Lag is at least the routine interval (up to about 15 min), plus a coarse age estimate.
+  - A symbol can resolve to the wrong mint if a copycat token has a similar mcap.
+  - Two identical-size trades by the same trader within about 2 min, seen in different polls, would be merged.
+  - Fomo's displayed size and mcap may be rounded.
+- **Daily check:** `fomo_feed.jsonl` keeps growing (the routine is running), and `feed_events` gets new rows.
