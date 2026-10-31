@@ -123,3 +123,13 @@
 - `bot.py` ignores `COPY%`, `FEED%` and `ONCHAIN%`. `report.py` prints both wallet pools. `stats.json` has `copy` and `onchain` blocks, and the site has an "On-chain copy-trading" card.
 - **Test:** `python3 copy_bot.py --selftest <wallet> /tmp/x.db` vets one wallet into a scratch DB.
 - Same daily restart step as COPY (`run_copy.sh`). Also check that `onchain_wallets.json` is under 6h old.
+
+## Fomo leaderboard traders: vetting gate REMOVED (2026-10-31 ~15:00 UK time)
+- **Zane's instruction:** "just copy the top leaderboard traders ... as long as they are top traders on Fomo copy them". Memecoin traders fail the history filter, so it no longer gates them.
+- **Fomo pool (`COPY_ALL` / `COPY_TOP5` / `COPY_HOLD`):** every high-confidence wallet in `fomo_wallets.json` is tracked immediately, in Fomo leaderboard order. That is 9 wallets: end837, G41T3R98, 0xbr9, jusatrades, vvvvvvvvvv, bystevenr, zelda89, tikitikitrader and Oura456. `COPY_TOP5` copies leaderboard ranks 1-5. Full-history vetting still runs on these wallets, but only for information: the metrics appear in the report and are labelled "copied regardless". The setting is `SKIP_VET_POOLS = {"fomo"}` in `copy_bot.py`, and `select_tracked()` runs on every source reload (every 10 min).
+- **FEED_* (10 followed traders, from `fomo_feed.jsonl`):** these never had a trader-vetting gate. They are unchanged.
+- **Kept for every entry:** mint and freeze authority revoked; top-10 holders ≤25%; liquidity ≥ $50k. The liquidity floor was checked against 72 tokens the Fomo wallets recently bought. 30 of them are at or above $50k today, and 39 are at or above $20k. Live liquidity understates liquidity at trade time, because dead tokens drain. So $50k does not block nearly every memecoin, and it was not loosened. Revisit if `copy_events` shows mostly `liq <50000` skips.
+- **Other paper rules are unchanged:** $5 entry at the current price; proportional exit when the trader sells; -15% stop; 6h cap. Feed entries must be ≤45 min old, and on-chain wallet entries ≤5 min (they are polled every 35s). Token matching is Solana-only.
+- **ONCHAIN_* (25 Kolscan wallets):** still on STRICT full-history vetting. They are labelled as such in the variant params and in the report.
+- **Fix:** the vet thread now commits after each transaction, so it no longer holds the SQLite write lock during slow RPC calls. This caused the earlier "database is locked" loop errors.
+- **Backup:** `copy_bot.py.bak_novet_*`.
