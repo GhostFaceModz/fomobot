@@ -53,3 +53,30 @@
 - If at least two variants qualify, the worst one is retired: its positions close at the last price. The best one is cloned with Gaussian mutations (σ ≈ 10%) on ~40% of its parameters, kept within safe bounds. The clone gets a fresh $100.
 - If fewer than two qualify, nothing changes. This avoids selecting on noise.
 - Before going live, still require 100+ trades with a positive bootstrap lower bound. A rank alone is not enough.
+
+## COPY mode: paper wallet copy-trading (added 2026-10-31)
+- `copy_bot.py` is **paper only**. It holds no keys, signs nothing, and sends no transactions. It shares `trades.db` and the dashboard with the main bot. `bot.py` ignores the `COPY*` variants.
+- **Wallet source:** the fomo.family leaderboard only. The leaderboard API (`prod-api.fomo.family/v2/leaderboard…`) needs a logged-in (Privy) session, so a browser step exports it to `fomo_wallets.json`: `[{"address":"<solana wallet>","username":"…","rank":1,"pnl_usd":…,"timeframe":"30d"}]`. The file is re-read every 10 min. Wallets missing from the file are untracked. Until the file exists the bot idles.
+- **Vetting** uses the wallet's on-chain swaps from free Solana RPC, about the last 800 transactions, so only days of history. A wallet must pass all of these:
+  - at least 30 closed trades
+  - win rate at least 40% and profit factor at least 1.2
+  - trimmed mean above 0, and still profitable without its best token
+  - best token at most 50% of profit
+  - median hold at least 3 min, with no more than 30% fast flips
+  - at most 150 trades/day (screens out snipers and bots)
+  - The top 15 by score are tracked, and wallets are re-vetted daily.
+- **Reacting to trades:** tracked wallets are polled every ~45s. Fomo push notifications are replaced by on-chain polling of the same wallets.
+  - On a BUY (if it is at most 5 min old), the bot pays $5 at the current price with 1.5%/side fee and slippage.
+  - The buy must pass the same rug checks: mint and freeze authority revoked, top-10 holders ≤25%. Jupiter's token audit is the fallback when RugCheck or RPC is down. Liquidity must be ≥ $50k.
+  - Exits happen when the wallet sells (proportional), at -15% stop-loss, or at 6h max hold.
+  - Each entry records the delay versus the wallet's buy and the lag cost versus the wallet's fill price.
+- **Variants:**
+  - `COPY_ALL`: copies all tracked wallets.
+  - `COPY_TOP5`: copies only the 5 best-ranked wallets.
+  - `COPY_HOLD`: same entries, but ignores the wallet's sells (buy-and-hold comparison).
+  - Each starts with $100, holds at most 10 open positions, and has a -5% daily loss limit.
+- **Daily review restart step (check BOTH loops):**
+  - `pgrep -f run.sh || (cd /workspace/papertrader && nohup setsid ./run.sh >/dev/null 2>&1 &)`
+  - `pgrep -f run_copy.sh || (cd /workspace/papertrader && nohup setsid ./run_copy.sh >/dev/null 2>&1 &)`
+  - `pgrep -f run_export.sh || (cd /workspace/papertrader && nohup setsid ./run_export.sh >/dev/null 2>&1 &)`
+  - Logs: `copy.log` and `copy_stdout.log`. Also check that `fomo_wallets.json` is fresh.
