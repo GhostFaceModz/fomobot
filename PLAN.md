@@ -82,7 +82,7 @@
   - Logs: `copy.log` and `copy_stdout.log`. Also check that `fomo_wallets.json` is fresh.
 
 ## FOMO FEED mode: copy from the Fomo in-app Traders feed (added 2026-10-31)
-- **Why:** Fomo does not expose trader wallets, so `fomo_wallets.json` stays empty and the wallet-based `COPY_*` variants stay inactive. They are kept, not removed.
+- **Why:** Fomo does not expose trader wallets in-app. (Update 2026-10-31: 9 of the 10 wallets were later identified from public sources, so `COPY_*` is now active. See the ONCHAIN section below. The feed path is kept as a second source.)
 - **Source:** Zane follows the top 10 Fomo 30D traders: end837, G41T3R98, 0xbr9, jusatrades, vvvvvvvvvv, heat, bystevenr, zelda89, tikitikitrader and Oura456. A browser routine runs every 15 min and appends the bell-feed rows to `fomo_feed.jsonl`. Each line is `{seen_at, trader, side, token, size_usd, mcap_usd, age_text, tx_id_or_key}`.
 - **Ingest:** `copy_bot.py` re-reads the file about every 60s from a byte offset stored in `feed_state`. A half-written last line is held back until it is complete.
 - **Dedupe:** a row counts as a repeat if `tx_id_or_key` was already seen. It also counts as a repeat if a row from an earlier poll has the same trader, side, token and size, and a trade time within max(2 min, 1.5× the age-text granularity). Every row is logged in `feed_events` with the bot's action.
@@ -106,3 +106,20 @@
   - Two identical-size trades by the same trader within about 2 min, seen in different polls, would be merged.
   - Fomo's displayed size and mcap may be rounded.
 - **Daily check:** `fomo_feed.jsonl` keeps growing (the routine is running), and `feed_events` gets new rows.
+
+## ONCHAIN mode + Fomo trader wallets (added 2026-10-31)
+- **Fomo trader wallets** are in `fomo_wallet_matches.json`, with evidence and a confidence label per trader. 9 are high confidence; heat is unresolved.
+  - Match 1: public trackers (fomo-api.com, fomoradar.io, provadata) list the username and wallet. They may share one backend, so they count as one source.
+  - Match 2 (independent, our own check): the wallet's recent txs are co-signed and fee-paid by Fomo's relayer `AgmLJBMD…zN51`.
+  - The high-confidence wallets are written to `fomo_wallets.json` (pool `fomo`), which feeds `COPY_ALL`, `COPY_TOP5` and `COPY_HOLD`.
+- **ONCHAIN pool:** every 6h, `copy_bot.py` fetches the free public Kolscan leaderboard (https://kolscan.io/leaderboard, 1/7/30-day boards) and writes `onchain_wallets.json`.
+  - Pre-filter, union of the 7d and 30d boards: ≥30 trades, ≥40% wins, profit >0. The top 25 by profit go on.
+  - Each wallet then gets our own history vetting (`F`: ≥30 closed, win ≥40%, PF ≥1.2, not one lucky token, no sniper/bot/ultra-short holds, trimmed mean >0).
+  - The top 10 passers are tracked.
+- **Variants:** `ONCHAIN_TOP` copies the top 10 vetted wallets and mirrors their sells. `ONCHAIN_HOLD` takes the same entries but ignores sells; it is the baseline.
+  - Same rules as COPY: $5 at the current price, rug checks, $50k liquidity floor, -15% stop, 6h cap, entries skipped if seen more than 5 min late.
+- **Pools:** `copy_wallets.pool` is `fomo` or `onchain`. Each source list only untracks wallets in its own pool, and tracking is per pool (fomo 15, onchain 10). Wallet polling runs every ~35s on publicnode.
+- **RPC note:** publicnode keeps only about 2 days of history. Vetting therefore pulls signatures from api.mainnet-beta.solana.com, which has full history but is rate-limited. Transactions are fetched from publicnode first, falling back to mainnet-beta. Budget: 400 tx per wallet, so a first pass over 34 wallets takes a few hours. Passers start being copied immediately.
+- `bot.py` ignores `COPY%`, `FEED%` and `ONCHAIN%`. `report.py` prints both wallet pools. `stats.json` has `copy` and `onchain` blocks, and the site has an "On-chain copy-trading" card.
+- **Test:** `python3 copy_bot.py --selftest <wallet> /tmp/x.db` vets one wallet into a scratch DB.
+- Same daily restart step as COPY (`run_copy.sh`). Also check that `onchain_wallets.json` is under 6h old.
