@@ -133,3 +133,13 @@
 - **ONCHAIN_* (25 Kolscan wallets):** still on STRICT full-history vetting. They are labelled as such in the variant params and in the report.
 - **Fix:** the vet thread now commits after each transaction, so it no longer holds the SQLite write lock during slow RPC calls. This caused the earlier "database is locked" loop errors.
 - **Backup:** `copy_bot.py.bak_novet_*`.
+
+## 2026-11-01 14:40 GMT — wallet-copy audit + upgrade (paper only)
+**Audit (31 Oct 14:56 → 1 Nov 14:30 GMT):** 48 wallet trades detected (27 buys / 21 sells); 1 buy copied (FOCO via bystevenr, +57% in COPY_ALL/HOLD).
+Skipped buys: 16 stale (11 = 362-402 s reaction latency, 5 = box-offline backlog 22:50-05:56), 9 liquidity < $50k (6 were $23-36k on 2 tokens, one of which tikitiki sold ~2x), 2 no DexScreener pair yet (fresh pump.fun). 21 sells "not holding".
+Only 4 of 9 wallets traded; Oura456 has had no tx for 2.6 days. Since 09:19 the 0 events are correct (third-party txs that only touch the wallet's accounts).
+**Bugs fixed:** (1) the poll used `until=last_sig`. publicnode keeps ~2 days, so an old sig gave -32020 on every poll (4D2wLf, 335x). It now pages newest→`before` until a seen sig and falls back to the other RPC. (2) A sig was marked seen before its tx was fetched, so a null/failed fetch lost the trade. Unfetched sigs now go to `copy_pending` and are retried up to 6 polls. (3) DB lock outage 06:00-09:19: the vet thread never rolled back on error. It now rolls back, commits before slow RPC, and sets busy_timeout=30s. (4) maxSupportedTransactionVersion=0. (5) Vetting has its own RPC rate bucket (40/min) so it can't starve live polling; POLL_EVERY 35→10 s. Vetting no longer marks sigs <15 min old as seen.
+**More real trades:** DexScreener miss → Jupiter tokens-v2 fallback (price/liq). Same rug checks (authorities revoked, top-10 ≤25%). Feed buys resolve the mint from the trader's own on-chain buy first (tikitiki 'Kim' → qhbbjGBK verified).
+**New paper variants (fomo pool, same entries, safety unchanged):** COPY_MIRROR (exit only on trader sell, 24h cap), COPY_TRAIL (trader sell + 20% trail armed at +15%), COPY_PROP ($2-10 sized by trader conviction vs their median buy), COPY_LIQ20 ($20k floor; main variants stay $50k until LIQ20 has ≥20 closed trades vs COPY_ALL).
+**Unchanged:** bot.py evolution (MIN_JUDGE=20; V19 9 closed, V20 6 closed, protected). Fomo feed scraper last wrote 2026-10-31 21:16 GMT and looks stopped.
+Backup: copy_bot.py.bak_poll_1435.
