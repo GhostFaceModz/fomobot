@@ -143,3 +143,7 @@ Only 4 of 9 wallets traded; Oura456 has had no tx for 2.6 days. Since 09:19 the 
 **New paper variants (fomo pool, same entries, safety unchanged):** COPY_MIRROR (exit only on trader sell, 24h cap), COPY_TRAIL (trader sell + 20% trail armed at +15%), COPY_PROP ($2-10 sized by trader conviction vs their median buy), COPY_LIQ20 ($20k floor; main variants stay $50k until LIQ20 has ≥20 closed trades vs COPY_ALL).
 **Unchanged:** bot.py evolution (MIN_JUDGE=20; V19 9 closed, V20 6 closed, protected). Fomo feed scraper last wrote 2026-10-31 21:16 GMT and looks stopped.
 Backup: copy_bot.py.bak_poll_1435.
+
+## Copy-bot lag fix (2026-11-09)
+- **Problem:** live poll was detecting Fomo-wallet buys hours late (`seen 7k–36k s after`) then skipping them as stale. Root cause: after downtime/restarts the poller re-fetched large unseen/pending signature backlogs with sequential `getTransaction` + slow RPC retries, so one "10s" cycle blocked for hours; `publicnode` failures also aborted before trying the next RPC; a `recent_hard_exit` SQL `%` bug crashed fresh opens.
+- **Fix:** hard 10s RPC timeouts + capped 429 backoff; RPC failover list; mark signatures older than 10 min as seen on startup/poll without fetching; cap 20 `getTransaction`s per cycle; log `poll cycle Xs …`; fixed re-entry cooldown SQL. Safety checks and variant logic unchanged.
